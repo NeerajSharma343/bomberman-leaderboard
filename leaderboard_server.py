@@ -1,51 +1,75 @@
 from flask import Flask, request, jsonify
-import json
+import sqlite3
 import os
 
 app = Flask(__name__)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_FILE = os.path.join(BASE_DIR, "leaderboard.json")
-
-if not os.path.exists(DATA_FILE):
-    with open(DATA_FILE, "w") as f:
-        json.dump([], f)
+DB_PATH = os.path.join(BASE_DIR, "leaderboard.db")
 
 
-def load_scores():
-    with open(DATA_FILE, "r") as f:
-        return json.load(f)
+# ✅ Initialize database
+def init_db():
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS scores (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            score INTEGER NOT NULL
+        )
+    """)
+
+    conn.commit()
+    conn.close()
 
 
-def save_scores(scores):
-    with open(DATA_FILE, "w") as f:
-        json.dump(scores, f, indent=4)
+init_db()
 
 
 @app.route("/")
 def home():
-    return "Bomberman Apocalypse Leaderboard Online"
+    return "Bomberman Apocalypse Leaderboard Online (SQLite)"
 
 
 @app.route("/submit", methods=["POST"])
 def submit_score():
+
     data = request.json
     name = data.get("name", "Player")
-    score = data.get("score", 0)
+    score = int(data.get("score", 0))
 
-    scores = load_scores()
-    scores.append({"name": name, "score": score})
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
 
-    scores = sorted(scores, key=lambda x: x["score"], reverse=True)[:20]
+    cursor.execute(
+        "INSERT INTO scores (name, score) VALUES (?, ?)",
+        (name, score)
+    )
 
-    save_scores(scores)
+    conn.commit()
+    conn.close()
 
     return jsonify({"status": "success"})
 
 
 @app.route("/leaderboard", methods=["GET"])
 def leaderboard():
-    return jsonify(load_scores())
+
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "SELECT name, score FROM scores ORDER BY score DESC LIMIT 20"
+    )
+
+    rows = cursor.fetchall()
+    conn.close()
+
+    results = [{"name": row[0], "score": row[1]} for row in rows]
+
+    return jsonify(results)
 
 
 if __name__ == "__main__":
